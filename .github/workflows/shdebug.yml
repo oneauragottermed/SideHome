@@ -1,0 +1,36 @@
+name: SHDebug - Build
+
+on:
+  push:
+    paths:
+      - 'SHDebug/**'
+      - '.github/workflows/shdebug.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build SHDebug.ipa
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Build
+        run: sh SHDebug/build.sh
+      - name: Upload a Build Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: SHDebug.ipa
+          path: SHDebug.ipa
+      - name: Release
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: shdebug
+          name: SHDebug (test app)
+          body: Test app for SideHome features. Download SHDebug.ipa on your iPhone and install it with SideHome's Install IPA app.
+          files: SHDebug.ipa
