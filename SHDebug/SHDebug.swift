@@ -93,10 +93,10 @@ final class Debugger: ObservableObject {
         }
     }
 
-    func notify(after seconds: TimeInterval, title: String) {
+    func notify(after seconds: TimeInterval, title: String, body: String? = nil) {
         let content = UNMutableNotificationContent()
         content.title = title
-        content.body = "Scheduled by SHDebug \(Int(seconds)) s earlier"
+        content.body = body ?? "Scheduled by SHDebug \(Int(seconds)) s earlier"
         content.sound = .default
         // A time-interval trigger must be > 0, so "now" means 1 second
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(seconds, 1), repeats: false)
@@ -179,6 +179,9 @@ struct ContentView: View {
                 Section {
                     Text("Ran \(debug.ticks) s of \(Int(Date().timeIntervalSince(debug.launchDate))) s since launch")
                     Text("Launch #\(debug.launches)")
+                    Text("Process: \(ProcessInfo.processInfo.processName)")
+                    Text("Bundle ID: \(Bundle.main.bundleIdentifier ?? "?")")
+                    Text("iOS \(UIDevice.current.systemVersion)")
                 } header: {
                     Text("Is the app still running?")
                 } footer: {
@@ -190,6 +193,12 @@ struct ContentView: View {
                     button("Notify Now", "bell") { debug.notify(after: 0, title: "Hello from SHDebug") }
                     button("Notify in 10 s (go home)", "timer") { debug.notify(after: 10, title: "10-second notification") }
                     button("Notify in 60 s (close SideHome)", "moon.zzz") { debug.notify(after: 60, title: "60-second notification") }
+                    button("Notify 3 Times (fills Notification Center)", "list.bullet") {
+                        for number in 1...3 { debug.notify(after: Double(number), title: "Burst \(number) of 3") }
+                    }
+                    button("Notify with Long Text", "text.alignleft") {
+                        debug.notify(after: 0, title: "A long one", body: String(repeating: "SideHome should cut this text off neatly after a few lines. ", count: 6))
+                    }
                     button("Set Random Badge", "app.badge") { debug.setBadge(Int.random(in: 1...99)) }
                     button("Clear Badge", "app") { debug.setBadge(0) }
                 }
@@ -218,9 +227,17 @@ struct ContentView: View {
                 Section("Interface") {
                     TextField("Type here to test the keyboard", text: $typedText)
                     button("Show Alert", "exclamationmark.bubble") { showingAlert = true }
-                    button("Haptic Feedback", "waveform") {
+                    button("Haptic: Success", "waveform") {
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        debug.log("Haptic played")
+                        debug.log("Success haptic requested")
+                    }
+                    button("Haptic: Impact", "hand.tap") {
+                        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+                        debug.log("Impact haptic requested")
+                    }
+                    button("Haptic: Selection", "dial.low") {
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        debug.log("Selection haptic requested")
                     }
                     button(darkMode ? "Switch to Light Mode" : "Switch to Dark Mode", "circle.lefthalf.filled") {
                         darkMode.toggle()

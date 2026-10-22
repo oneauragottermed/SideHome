@@ -5,6 +5,34 @@
 
 import SwiftUI
 
+enum SideHomeOverlay: Identifiable {
+    case notificationCenter, controlCenter, search
+    var id: Self { self }
+}
+
+struct SideHomeFolder: Codable, Hashable, Identifiable {
+    var id = UUID().uuidString
+    var name: String
+    /// LCAppInfo.relativeBundlePath of each app, in order
+    var apps: [String]
+    var orderKey: String { "folder:\(id)" }
+}
+
+/// One spot on the home-screen grid.
+enum SideHomeItem: Hashable, Identifiable {
+    case app(LCAppModel)
+    case folder(SideHomeFolder)
+
+    var id: String { orderKey }
+    /// The key stored in SideHomeModel.iconOrder
+    var orderKey: String {
+        switch self {
+        case .app(let app): return app.appInfo.relativeBundlePath ?? ""
+        case .folder(let folder): return folder.orderKey
+        }
+    }
+}
+
 class SideHomeModel: ObservableObject {
     static let shared = SideHomeModel()
     static let chooseIPANotification = Notification.Name("SideHomeChooseIPA")
@@ -14,16 +42,25 @@ class SideHomeModel: ObservableObject {
     @Published var showLibrary = false
     /// A guest app is open full-screen, so the bottom-edge swipe belongs to SideHome first.
     @Published var appInFront = false
+    /// Notification Center, Control Center or Search, shown over everything including guest apps.
+    @Published var overlay: SideHomeOverlay?
     /// Set by LCAppListView while an IPA is being installed (0...1), nil otherwise.
     @Published var installProgress: Float? = nil
     @Published var wallpaper: UIImage? = UIImage(contentsOfFile: SideHomeModel.wallpaperURL.path)
-    /// Home-screen order as LCAppInfo.relativeBundlePath values. Apps not listed go at the end.
+    /// Home-screen order as SideHomeItem.orderKey values. Items not listed go at the end.
     @Published var iconOrder: [String] = UserDefaults.standard.stringArray(forKey: "SideHomeIconOrder") ?? [] {
         didSet { UserDefaults.standard.set(iconOrder, forKey: "SideHomeIconOrder") }
     }
     /// Icon badges set by guest apps, keyed by the guest's bundle identifier.
     @Published var badges: [String: Int] = UserDefaults.standard.dictionary(forKey: "SideHomeBadges") as? [String: Int] ?? [:] {
         didSet { UserDefaults.standard.set(badges, forKey: "SideHomeBadges") }
+    }
+    @Published var folders: [SideHomeFolder] = SideHomeModel.load("SideHomeFolders") ?? [] {
+        didSet { UserDefaults.standard.set(try? JSONEncoder().encode(folders), forKey: "SideHomeFolders") }
+    }
+
+    private static func load<T: Decodable>(_ key: String) -> T? {
+        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(T.self, from: $0) }
     }
 
     func setWallpaper(_ data: Data?) {
@@ -35,22 +72,78 @@ class SideHomeModel: ObservableObject {
         wallpaper = data.flatMap(UIImage.init(data:))
     }
 
-    func orderedApps(_ apps: [LCAppModel]) -> [LCAppModel] {
+    /// Shows or hides an overlay without the default sheet slide; the overlays animate themselves.
+    func present(_ overlay: SideHomeOverlay?) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { self.overlay = overlay }
+    }
+
+    // MARK: Grid
+
+    /// Apps outside folders plus non-empty folders, in home-screen order.
+    func items(_ apps: [LCAppModel]) -> [SideHomeItem] {
+        let foldered = Set(folders.flatMap(\.apps))
+        let loose = apps.filter { !foldered.contains($0.appInfo.relativeBundlePath ?? "") }.map(SideHomeItem.app)
+        let nonEmpty = folders.filter { !self.apps(in: $0, from: apps).isEmpty }.map(SideHomeItem.folder)
         let rank = Dictionary(iconOrder.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
-        return apps.enumerated()
+        return (loose + nonEmpty).enumerated()
             .sorted { a, b in
-                (rank[a.element.appInfo.relativeBundlePath ?? ""] ?? Int.max, a.offset) <
-                (rank[b.element.appInfo.relativeBundlePath ?? ""] ?? Int.max, b.offset)
+                (rank[a.element.orderKey] ?? Int.max, a.offset) < (rank[b.element.orderKey] ?? Int.max, b.offset)
             }
             .map(\.element)
     }
 
-    func move(_ app: LCAppModel, to target: LCAppModel, in apps: [LCAppModel]) {
-        var order = orderedApps(apps).compactMap { $0.appInfo.relativeBundlePath }
-        guard let from = order.firstIndex(of: app.appInfo.relativeBundlePath ?? ""),
-              let to = order.firstIndex(of: target.appInfo.relativeBundlePath ?? "") else { return }
+    func move(_ key: String, to targetKey: String, in apps: [LCAppModel]) {
+        var order = items(apps).map(\.orderKey)
+        guard let from = order.firstIndex(of: key), let to = order.firstIndex(of: targetKey) else { return }
         order.move(fromOffsets: IndexSet(integer: from), toOffset: to > from ? to + 1 : to)
         iconOrder = order
+    }
+
+    // MARK: Folders
+
+    func apps(in folder: SideHomeFolder, from apps: [LCAppModel]) -> [LCAppModel] {
+        folder.apps.compactMap { key in apps.first { $0.appInfo.relativeBundlePath == key } }
+    }
+
+    func addToFolder(_ appKey: String, folderID: String) {
+        var updated = folders
+        for index in updated.indices {
+            updated[index].apps.removeAll { $0 == appKey }
+        }
+        if let index = updated.firstIndex(where: { $0.id == folderID }) {
+            updated[index].apps.append(appKey)
+        }
+        folders = updated.filter { !$0.apps.isEmpty }
+    }
+
+    func createFolder(named name: String, with appKey: String) {
+        removeFromFolders(appKey)
+        let folder = SideHomeFolder(name: name.isEmpty ? "Folder" : name, apps: [appKey])
+        folders.append(folder)
+        // Put the new folder where the app was
+        if let index = iconOrder.firstIndex(of: appKey) {
+            iconOrder.insert(folder.orderKey, at: index)
+        }
+    }
+
+    func removeFromFolders(_ appKey: String) {
+        var updated = folders
+        for index in updated.indices {
+            updated[index].apps.removeAll { $0 == appKey }
+        }
+        folders = updated.filter { !$0.apps.isEmpty }
+    }
+
+    func renameFolder(_ id: String, to name: String) {
+        guard let index = folders.firstIndex(where: { $0.id == id }), !name.isEmpty else { return }
+        folders[index].name = name
+    }
+
+    /// Removes the folder; its apps go back onto the home screen.
+    func deleteFolder(_ id: String) {
+        folders.removeAll { $0.id == id }
     }
 }
 
@@ -104,10 +197,19 @@ extension View {
         modifier(SideHomeHomeGesture(action: action))
     }
 
-    /// While on, the first swipe from the bottom goes to SideHome and only a second one leaves to real iOS.
-    @ViewBuilder func sideHomeDefersHomeGesture(_ enabled: Bool) -> some View {
+    /// Swipes from these edges go to SideHome first; only a second swipe reaches real iOS.
+    @ViewBuilder func sideHomeDefersSystemGestures(_ edges: Edge.Set) -> some View {
         if #available(iOS 16.0, *) {
-            defersSystemGestures(on: enabled ? .bottom : [])
+            defersSystemGestures(on: edges)
+        } else {
+            self
+        }
+    }
+
+    /// Lets a fullScreenCover show what's behind it.
+    @ViewBuilder func sideHomeClearPresentation() -> some View {
+        if #available(iOS 16.4, *) {
+            presentationBackground(.clear)
         } else {
             self
         }

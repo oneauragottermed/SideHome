@@ -71,7 +71,7 @@ struct SideHomeSettingsView: View {
             .navigationTitle("Settings")
         }
         .navigationViewStyle(.stack)
-        .sideHomeDefersHomeGesture(true)
+        .sideHomeDefersSystemGestures(.bottom)
         .sideHomeHomeGesture { dismiss() }
     }
 

@@ -13,6 +13,8 @@ import UIKit
     static var iconFrames: [String: CGRect] = [:]
     /// Running apps keyed by dataUUID. Values are SideHomeAppContainer (typed loosely because it's iOS 16+).
     private static var running: [String: UIViewController] = [:]
+    /// dataUUIDs of running apps, most recently opened first (app switcher order).
+    private static var recent: [String] = []
 
     /// Called from LCUtils.launchMultitaskGuestApp instead of opening a floating window.
     @objc(presentWithDisplayName:bundleId:dataUUID:completionHandler:)
@@ -38,8 +40,31 @@ import UIKit
         }
     }
 
+    /// Shows the app switcher. Returns false when no app is running.
+    @discardableResult
+    class func showSwitcher() -> Bool {
+        guard #available(iOS 16.0, *) else { return false }
+        let cards = recent.compactMap { running[$0] as? SideHomeAppContainer }
+        guard let rootView = cards.first?.view.superview else { return false }
+        SideHomeSwitcher.shared.open(cards: cards, in: rootView)
+        return true
+    }
+
+    class func terminateAll() {
+        guard #available(iOS 16.0, *) else { return }
+        for case let container as SideHomeAppContainer in running.values {
+            container.appSceneVC.terminate()
+        }
+    }
+
+    fileprivate class func didFocus(dataUUID: String) {
+        recent.removeAll { $0 == dataUUID }
+        recent.insert(dataUUID, at: 0)
+    }
+
     fileprivate class func didClose(dataUUID: String) {
         running[dataUUID] = nil
+        recent.removeAll { $0 == dataUUID }
     }
 
     fileprivate static var keyWindow: UIWindow? {
@@ -59,6 +84,8 @@ private class SideHomeAppContainer: UIViewController, AppSceneViewControllerDele
     private(set) var appSceneVC: AppSceneViewController!
     private var completionHandler: ((NSNumber?, Error?) -> Void)?
     private let iconCornerRadius: CGFloat = 14
+    private let homeStrip = UIView()
+    private let topStrip = UIView()
 
     init(bundleId: String, dataUUID: String, rootVC: UIViewController, completionHandler: ((NSNumber?, Error?) -> Void)?) {
         self.bundleId = bundleId
@@ -83,12 +110,23 @@ private class SideHomeAppContainer: UIViewController, AppSceneViewControllerDele
         view.addSubview(appSceneVC.view)
         appSceneVC.didMove(toParent: self)
 
-        // Invisible strip over the home-indicator area. Touches on the hosted scene go to the guest
-        // process, so the "go home" swipe needs a host-owned view on top to land on.
-        let homeStrip = UIView(frame: CGRect(x: 0, y: view.bounds.height - 34, width: view.bounds.width, height: 34))
+        // Invisible strips over the home-indicator and status-bar areas. Touches on the hosted scene go
+        // to the guest process, so SideHome's own swipes need host-owned views on top to land on.
+        homeStrip.frame = CGRect(x: 0, y: view.bounds.height - 34, width: view.bounds.width, height: 34)
         homeStrip.autoresizingMask = [.flexibleWidth, .flexibleTopMargin]
         homeStrip.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(homeSwipe(_:))))
         view.addSubview(homeStrip)
+        topStrip.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: 44)
+        topStrip.autoresizingMask = [.flexibleWidth, .flexibleBottomMargin]
+        topStrip.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(topSwipe(_:))))
+        view.addSubview(topStrip)
+    }
+
+    /// Off while the app is a card in the app switcher, so touches go to the switcher instead.
+    func setInteractive(_ interactive: Bool) {
+        appSceneVC.view.isUserInteractionEnabled = interactive
+        homeStrip.isHidden = !interactive
+        topStrip.isHidden = !interactive
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -116,6 +154,7 @@ private class SideHomeAppContainer: UIViewController, AppSceneViewControllerDele
         }
         statusBarManager?.nativeWindowViewController = appSceneVC
         SideHomeModel.shared.appInFront = true
+        SideHomeAppHost.didFocus(dataUUID: dataUUID)
         UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
             self.view.transform = .identity
             self.view.layer.cornerRadius = 0
@@ -151,6 +190,10 @@ private class SideHomeAppContainer: UIViewController, AppSceneViewControllerDele
             view.layer.cornerRadius = 40 * progress / scale
         case .ended, .cancelled:
             let velocity = gesture.velocity(in: view.superview).y
+            // Swipe up and pause before lifting: app switcher, like iOS
+            if gesture.state == .ended && progress > 0.12 && abs(velocity) < 250 && SideHomeAppHost.showSwitcher() {
+                return
+            }
             if gesture.state == .ended && (progress > 0.25 || velocity < -600) {
                 zoomOut(velocity: min(abs(velocity) / height, 3))
             } else {
@@ -159,6 +202,14 @@ private class SideHomeAppContainer: UIViewController, AppSceneViewControllerDele
         default:
             break
         }
+    }
+
+    /// Swipe down from the status bar: left half Notification Center, right half Control Center.
+    @objc private func topSwipe(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: view)
+        guard gesture.state == .ended, translation.y > 40 else { return }
+        let startX = gesture.location(in: view).x - translation.x
+        SideHomeModel.shared.present(startX < view.bounds.midX ? .notificationCenter : .controlCenter)
     }
 
     private var statusBarManager: LCStatusBarManager? {
@@ -221,5 +272,182 @@ private class SideHomeAppContainer: UIViewController, AppSceneViewControllerDele
             UserDefaults.standard.removeObject(forKey: "launchAppUrlScheme")
             vc.openURLScheme(launchUrl)
         }
+    }
+}
+
+/// The app switcher: running apps shrink into a carousel of cards over a blurred home screen.
+/// Tap a card to open it, swipe it up to quit, tap outside to go home.
+@available(iOS 16.0, *)
+private final class SideHomeSwitcher: NSObject {
+    static let shared = SideHomeSwitcher()
+    private var backdrop: UIVisualEffectView?
+    private var cards: [SideHomeAppContainer] = []
+    private var cardGestures: [UIGestureRecognizer] = []
+    /// Horizontal scroll in points; 0 shows the most recent app in the middle
+    private var scroll: CGFloat = 0
+    private var panStartScroll: CGFloat = 0
+    private var panIsVertical = false
+    private let scale: CGFloat = 0.62
+    private let spacing: CGFloat = 22
+
+    private var bounds: CGRect { backdrop?.bounds ?? .zero }
+    private var step: CGFloat { bounds.width * scale + spacing }
+    private var maxScroll: CGFloat { max(CGFloat(cards.count - 1) * step, 0) }
+
+    func open(cards: [SideHomeAppContainer], in rootView: UIView) {
+        guard backdrop == nil else { return }
+        self.cards = cards
+        scroll = 0
+        SideHomeModel.shared.appInFront = false
+
+        let backdrop = UIVisualEffectView(effect: nil)
+        backdrop.frame = rootView.bounds
+        backdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        backdrop.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(backdropTapped)))
+        backdrop.addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(backdropPanned(_:))))
+        // Just below the lowest card, above the SwiftUI home screen
+        let lowest = cards.compactMap { rootView.subviews.firstIndex(of: $0.view) }.min() ?? rootView.subviews.count
+        rootView.insertSubview(backdrop, at: lowest)
+        self.backdrop = backdrop
+
+        for (index, card) in cards.enumerated() {
+            card.setInteractive(false)
+            if card.view.isHidden {
+                card.view.transform = transform(for: index)
+                card.view.alpha = 0
+                card.view.isHidden = false
+            }
+            let tap = UITapGestureRecognizer(target: self, action: #selector(cardTapped(_:)))
+            let pan = UIPanGestureRecognizer(target: self, action: #selector(cardPanned(_:)))
+            card.view.addGestureRecognizer(tap)
+            card.view.addGestureRecognizer(pan)
+            cardGestures += [tap, pan]
+        }
+        animate {
+            backdrop.effect = UIBlurEffect(style: .systemThinMaterialDark)
+            self.layoutCards()
+        }
+    }
+
+    private func transform(for index: Int) -> CGAffineTransform {
+        // Most recent in the middle, older apps to the left
+        CGAffineTransform(translationX: scroll - CGFloat(index) * step, y: -bounds.height * 0.03)
+            .scaledBy(x: scale, y: scale)
+    }
+
+    private func layoutCards() {
+        for (index, card) in cards.enumerated() {
+            card.view.transform = transform(for: index)
+            card.view.alpha = 1
+            card.view.layer.cornerRadius = 24 / scale
+        }
+    }
+
+    private func animate(_ changes: @escaping () -> Void) {
+        UIView.animate(withDuration: 0.42, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0,
+                       options: [.allowUserInteraction, .beginFromCurrentState], animations: changes)
+    }
+
+    @objc private func cardTapped(_ gesture: UITapGestureRecognizer) {
+        guard let card = cards.first(where: { $0.view === gesture.view }) else { return }
+        finish(opening: card)
+    }
+
+    @objc private func backdropTapped() {
+        finish(opening: nil)
+    }
+
+    @objc private func backdropPanned(_ gesture: UIPanGestureRecognizer) {
+        scrollCards(gesture)
+    }
+
+    @objc private func cardPanned(_ gesture: UIPanGestureRecognizer) {
+        guard let index = cards.firstIndex(where: { $0.view === gesture.view }) else { return }
+        let translation = gesture.translation(in: backdrop)
+        if gesture.state == .began {
+            panIsVertical = abs(translation.y) > abs(translation.x)
+        }
+        guard panIsVertical else {
+            scrollCards(gesture)
+            return
+        }
+        let card = cards[index]
+        switch gesture.state {
+        case .changed:
+            card.view.transform = transform(for: index).concatenating(CGAffineTransform(translationX: 0, y: min(translation.y, 0)))
+        case .ended, .cancelled:
+            let velocity = gesture.velocity(in: backdrop).y
+            if gesture.state == .ended && (translation.y < -120 || velocity < -700) {
+                quit(at: index)
+            } else {
+                animate { self.layoutCards() }
+            }
+        default:
+            break
+        }
+    }
+
+    private func scrollCards(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: backdrop).x
+        switch gesture.state {
+        case .began:
+            panStartScroll = scroll
+        case .changed:
+            scroll = min(max(panStartScroll + translation, 0), maxScroll)
+            layoutCards()
+        case .ended, .cancelled:
+            // Settle on the nearest card, carrying some of the fling
+            let projected = scroll + gesture.velocity(in: backdrop).x * 0.15
+            scroll = min(max((projected / step).rounded() * step, 0), maxScroll)
+            animate { self.layoutCards() }
+        default:
+            break
+        }
+    }
+
+    private func quit(at index: Int) {
+        let card = cards.remove(at: index)
+        removeGestures(from: card)
+        let flyAway = transform(for: index).concatenating(CGAffineTransform(translationX: 0, y: -bounds.height))
+        UIView.animate(withDuration: 0.3, animations: {
+            card.view.transform = flyAway
+            card.view.alpha = 0
+        }, completion: { _ in
+            card.view.isHidden = true
+            card.appSceneVC.terminate()
+        })
+        if cards.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.finish(opening: nil) }
+            return
+        }
+        scroll = min(scroll, maxScroll)
+        animate { self.layoutCards() }
+    }
+
+    private func removeGestures(from card: SideHomeAppContainer) {
+        for gesture in card.view.gestureRecognizers ?? [] where cardGestures.contains(gesture) {
+            card.view.removeGestureRecognizer(gesture)
+        }
+    }
+
+    private func finish(opening chosen: SideHomeAppContainer?) {
+        guard let backdrop else { return }
+        let others = cards.filter { $0 !== chosen }
+        for card in cards {
+            removeGestures(from: card)
+            card.setInteractive(true)
+        }
+        cardGestures = []
+        cards = []
+        self.backdrop = nil
+
+        chosen?.zoomIn()
+        UIView.animate(withDuration: 0.3, animations: {
+            backdrop.effect = nil
+            for card in others { card.view.alpha = 0 }
+        }, completion: { _ in
+            backdrop.removeFromSuperview()
+            for card in others where card.view.alpha == 0 { card.view.isHidden = true }
+        })
     }
 }
