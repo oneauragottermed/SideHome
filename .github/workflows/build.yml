@@ -20,8 +20,7 @@ jobs:
     outputs:
       scheme: ${{ steps.scheme.outputs.scheme }}
       archive_path: ${{ env.archive_path }}
-      artifact: ${{ env.scheme }}.ipa
-      artifact2: ${{ env.scheme }}+SideStore.ipa
+      artifact: SideHome.ipa
     steps:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -73,14 +72,8 @@ jobs:
       - name: Upload a Build Artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.scheme }}.ipa
-          path: ${{ env.scheme }}.ipa
-      
-      - name: Upload LiveContainer+SideStore
-        uses: actions/upload-artifact@v7
-        with:
-          name: ${{ env.scheme }}+SideStore.ipa
-          path: ${{ env.scheme }}+SideStore.ipa
+          name: SideHome.ipa
+          path: SideHome.ipa
 
   release__nightly:
     name: Nightly Release
@@ -100,10 +93,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: ${{ needs.build.outputs.artifact }}
-      - name: Download a Build Artifact2
-        uses: actions/download-artifact@v8
-        with:
-          name: ${{ needs.build.outputs.artifact2 }}
       - name: Get Commit Info
         id: commit_info
         run: |
@@ -111,15 +100,6 @@ jobs:
           COMMIT_MSG=$(git log -1 --pretty=%s)
           echo "COMMIT_SHA=$COMMIT_SHA" >> $GITHUB_ENV
           echo "COMMIT_MSG=$COMMIT_MSG" >> $GITHUB_ENV
-      - name: Update AltStore source
-        id: update_source
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NIGHTLY_LINK: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-          commit_sha: ${{ env.COMMIT_SHA }}
-          commit_msg: ${{ env.COMMIT_MSG }}
-        run: |
-          python .github/update_json.py
       - name: Nightly Release
         uses: andelf/nightly-release@5834076edc55cc05975561c9722043f072ac5c26
         env:
@@ -132,13 +112,3 @@ jobs:
             This is a nightly release [created automatically with GitHub Actions workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}).
           files: |
             ${{ needs.build.outputs.artifact }}
-            ${{ needs.build.outputs.artifact2 }}
-            .github/apps_nightly.json
-      - name: Update apps.json in Release 1.0
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: "1.0"
-          files: |
-            .github/apps_ss_lc.json
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
