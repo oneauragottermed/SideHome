@@ -523,8 +523,8 @@ class LCAppModel: ObservableObject, Hashable {
             if let urlScheme {
                 UserDefaults.standard.setValue(urlScheme, forKey: "launchAppUrlScheme")
             }
-            var found = false
-            if #available(iOS 16.1, *) {
+            var found = SideHomeAppHost.bringToFront(dataUUID: dataUUID)
+            if !found, #available(iOS 16.1, *) {
                 found = MultitaskWindowManager.openExistingAppWindow(dataUUID: dataUUID)
             }
             if !found {

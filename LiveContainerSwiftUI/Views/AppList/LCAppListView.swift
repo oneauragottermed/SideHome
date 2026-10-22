@@ -300,6 +300,16 @@ struct LCAppListView : View, LCAppBannerDelegate, LCAppModelDelegate {
         }, onDismiss: {
             choosingIPA = false
         })
+        // SideHome: the home screen's Install IPA app opens this picker and shows install progress on its own icon
+        .onReceive(NotificationCenter.default.publisher(for: SideHomeModel.chooseIPANotification)) { _ in
+            choosingIPA = true
+        }
+        .onChange(of: installprogressVisible) { visible in
+            SideHomeModel.shared.installProgress = visible ? 0 : nil
+        }
+        .onChange(of: installProgressPercentage) { progress in
+            if installprogressVisible { SideHomeModel.shared.installProgress = progress }
+        }
         .alert("lc.appList.installation".loc, isPresented: $installReplaceAlert.show) {
             ForEach(installOptions, id: \.self) { installOption in
                 Button(role: installOption.isReplace ? .destructive : nil, action: {

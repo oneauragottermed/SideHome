@@ -70,6 +70,10 @@
     [lcUserDefaults removeObjectForKey:@"selectedContainer"];
     
     dispatch_async(dispatch_get_main_queue(), ^{
+        // SideHome: open the app full-screen over the home screen instead of a floating window
+        if([SideHomeAppHost presentWithDisplayName:displayName bundleId:bundleId dataUUID:dataUUID completionHandler:completionHandler]) {
+            return;
+        }
         if (@available(iOS 16.1, *)) {
             if(UIApplication.sharedApplication.supportsMultipleScenes && [NSUserDefaults.lcSharedDefaults integerForKey:@"LCMultitaskMode"] == 1) {
                 [MultitaskWindowManager openAppWindowWithDisplayName:displayName dataUUID:dataUUID bundleId:bundleId pidCallback:completionHandler];
