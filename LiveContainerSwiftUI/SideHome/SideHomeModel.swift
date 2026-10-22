@@ -21,6 +21,10 @@ class SideHomeModel: ObservableObject {
     @Published var iconOrder: [String] = UserDefaults.standard.stringArray(forKey: "SideHomeIconOrder") ?? [] {
         didSet { UserDefaults.standard.set(iconOrder, forKey: "SideHomeIconOrder") }
     }
+    /// Icon badges set by guest apps, keyed by the guest's bundle identifier.
+    @Published var badges: [String: Int] = UserDefaults.standard.dictionary(forKey: "SideHomeBadges") as? [String: Int] ?? [:] {
+        didSet { UserDefaults.standard.set(badges, forKey: "SideHomeBadges") }
+    }
 
     func setWallpaper(_ data: Data?) {
         if let data {

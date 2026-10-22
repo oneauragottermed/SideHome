@@ -90,6 +90,11 @@
             [bookmarks addObject:[tweaksURL bookmarkDataWithOptions:(1<<11) includingResourceValuesForKeys:0 relativeToURL:0 error:0]];
         }
     }
+    // SideHome: lets the guest post notifications, badges and haptics through SideHome
+    NSXPCListenerEndpoint *sideHomeEndpoint = SideHomeHostService.endpoint;
+    if(sideHomeEndpoint) {
+        userInfo[@"sideHomeEndpoint"] = sideHomeEndpoint;
+    }
     item.userInfo = userInfo;
     
     __weak typeof(self) weakSelf = self;

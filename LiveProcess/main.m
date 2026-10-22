@@ -11,6 +11,7 @@
 #import "../LiveContainer/utils.h"
 #import "../LiveContainer/Tweaks/Tweaks.h"
 #import "../SideStoreSupport/XPCServer.h"
+#import "../LiveContainerSwiftUI/SideHome/SideHomeBridge.h"
 
 @interface LiveProcessHandler : NSObject<NSExtensionRequestHandling>
 @end
@@ -30,6 +31,17 @@ static NSDictionary *retrievedAppInfo;
     retrievedAppInfo = [context.inputItems.firstObject userInfo];
     // Return control to LiveContainerMain
     CFRunLoopStop(CFRunLoopGetMain());
+}
+@end
+
+static NSObject<SideHomeHostServer> *sideHomeServer;
+static NSXPCConnection *sideHomeConnection;
+@implementation SideHomeGuestBridge
++ (NSObject<SideHomeHostServer> *)server {
+    return sideHomeServer;
+}
++ (void)setServer:(NSObject<SideHomeHostServer> *)server {
+    sideHomeServer = server;
 }
 @end
 
@@ -94,6 +106,15 @@ int LiveProcessMain(int argc, char *argv[]) {
         LiveProcessSideStoreHandler.shared.server = proxy;
         LiveProcessSideStoreHandler.shared.connection = connection;
         
+    }
+
+    // SideHome: channel for notifications, badges and haptics (see SideHomeBridge.h)
+    NSXPCListenerEndpoint *sideHomeEndpoint = appInfo[@"sideHomeEndpoint"];
+    if (sideHomeEndpoint) {
+        sideHomeConnection = [[NSXPCConnection alloc] initWithListenerEndpoint:sideHomeEndpoint];
+        sideHomeConnection.remoteObjectInterface = [NSXPCInterface interfaceWithProtocol:@protocol(SideHomeHostServer)];
+        [sideHomeConnection activate];
+        SideHomeGuestBridge.server = sideHomeConnection.remoteObjectProxy;
     }
 
     

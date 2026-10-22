@@ -146,7 +146,8 @@ struct SideHomeScreen: View {
                 }
             }
         } label: {
-            SideHomeIcon(label: showLabels ? app.displayName : nil, frameKey: key) {
+            SideHomeIcon(label: showLabels ? app.displayName : nil, frameKey: key,
+                         badge: home.badges[app.appInfo.bundleIdentifier() ?? ""] ?? 0) {
                 Image(uiImage: app.appInfo.iconIsDarkIcon(false) ?? UIImage())
                     .resizable()
             }
@@ -233,6 +234,7 @@ struct SideHomeScreen: View {
             }
             try FileManager.default.removeItem(atPath: bundlePath)
             sharedModel.apps.removeAll { $0 == app }
+            home.badges[app.appInfo.bundleIdentifier() ?? ""] = nil
             for container in app.appInfo.containers {
                 let dataUUID = container.folderName
                 try? FileManager.default.removeItem(at: LCPath.dataPath.appendingPathComponent(dataUUID))
@@ -273,6 +275,7 @@ struct SideHomeIcon<Content: View>: View {
     var label: String?
     /// When set, the icon reports its on-screen frame so a launched app can zoom out of it.
     var frameKey: String? = nil
+    var badge = 0
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -289,6 +292,17 @@ struct SideHomeIcon<Content: View>: View {
                             if let frameKey { SideHomeAppHost.iconFrames[frameKey] = frame }
                         }
                 })
+                .overlay(alignment: .topTrailing) {
+                    if badge > 0 {
+                        Text(badge > 999 ? "999+" : "\(badge)")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .frame(minWidth: 24, minHeight: 24)
+                            .background(Color.red, in: Capsule())
+                            .offset(x: 8, y: -8)
+                    }
+                }
             if let label {
                 Text(label)
                     .font(.system(size: 12, weight: .medium))
