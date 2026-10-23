@@ -2,6 +2,7 @@
 #import "LCSharedUtils.h"
 #import "UIKitPrivate.h"
 #import "../LiveContainer/utils.h"
+#import "../LiveContainerSwiftUI/SideHome/SideHomeBridge.h"
 #import <LocalAuthentication/LocalAuthentication.h>
 #import "Localization.h"
 
@@ -349,6 +350,15 @@ BOOL shouldRedirectOpenURLToHost(NSURL* url) {
     [ud boolForKey:@"LCRedirectURLToHost"] &&
     [[ud arrayForKey:@"LCGuestURLSchemes"] containsObject:url.scheme];
 }
+BOOL canAppOpenItself(NSURL* url);
+// SideHome: in LiveProcess the app's own scheme can't reach it through iOS, so SideHome delivers it
+static BOOL sideHomeOpenOwnURL(NSURL* url) {
+    NSObject<SideHomeHostServer>* sideHome = [NSClassFromString(@"SideHomeGuestBridge") server];
+    if(!NSUserDefaults.isLiveProcess || !sideHome || !canAppOpenItself(url)) return NO;
+    [sideHome openURL:url.absoluteString inApp:NSUserDefaults.lcGuestAppId];
+    return YES;
+}
+
 BOOL canAppOpenItself(NSURL* url) {
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
@@ -618,6 +628,10 @@ static LCControlAppURLHandling LCHandleControlAppURL(NSURL *url, NSString** modi
         return;
     }
     
+    if(sideHomeOpenOwnURL(url)) {
+        if(completion) completion(YES);
+        return;
+    }
     BOOL openSelf = canAppOpenItself(url);
     BOOL redirectToHost = shouldRedirectOpenURLToHost(url);;
     if(openSelf || redirectToHost) {
@@ -699,6 +713,10 @@ static LCControlAppURLHandling LCHandleControlAppURL(NSURL *url, NSString** modi
 }
 
 - (void)hook_openURL:(NSURL *)url options:(UISceneOpenExternalURLOptions *)options completionHandler:(void (^)(BOOL success))completion {
+    if(sideHomeOpenOwnURL(url)) {
+        if(completion) completion(YES);
+        return;
+    }
     BOOL openSelf = canAppOpenItself(url);
     BOOL redirectToHost = shouldRedirectOpenURLToHost(url);
     if(openSelf || redirectToHost) {

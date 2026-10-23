@@ -13,6 +13,7 @@ xcrun --sdk iphoneos swiftc -parse-as-library -O \
     -target arm64-apple-ios16.0 \
     SHDebug/SHDebug.swift -o "$APP/SHDebug"
 cp SHDebug/Info.plist "$APP/Info.plist"
+cp SHDebug/AppIcon60x60@2x.png SHDebug/AppIcon60x60@3x.png "$APP/"
 
 # Ad-hoc signature only; SideHome (LiveContainer) signs guest apps itself
 codesign --force --sign - "$APP"

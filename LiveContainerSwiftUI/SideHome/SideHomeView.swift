@@ -39,6 +39,7 @@ struct SideHomeRootView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: home.showLibrary)
         .sideHomeDefersSystemGestures(deferredEdges)
+        .onAppear { SideHomeNav.install() }
         // Presented, so it covers running guest apps too
         .fullScreenCover(item: $home.overlay) { overlay in
             SideHomeOverlayView(overlay: overlay)
@@ -58,7 +59,6 @@ struct SideHomeScreen: View {
     @EnvironmentObject private var sharedModel: SharedModel
     @ObservedObject private var home = SideHomeModel.shared
     @AppStorage("SideHomeShowIconLabels") private var showLabels = true
-    @State private var settingsOpen = false
     @State private var editing = false
     @State private var draggingKey: String?
     @State private var settingsApp: LCAppModel?
@@ -85,7 +85,7 @@ struct SideHomeScreen: View {
         ZStack {
             VStack(spacing: 0) {
                 grid
-                searchPill
+                bottomRow
                 dock
             }
             .background { SideHomeWallpaper() }
@@ -95,7 +95,7 @@ struct SideHomeScreen: View {
             folderOverlay
             dialogs
         }
-        .fullScreenCover(isPresented: $settingsOpen) {
+        .fullScreenCover(isPresented: $home.settingsOpen) {
             SideHomeSettingsView()
                 .environmentObject(sharedModel)
                 .sideHomeZoom(id: "settings", in: zoom)
@@ -144,16 +144,33 @@ struct SideHomeScreen: View {
         }
     }
 
-    private var searchPill: some View {
-        Button {
-            home.present(.search)
-        } label: {
-            Label("Search", systemImage: "magnifyingglass")
-                .font(.footnote.weight(.semibold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .sideHomeGlass(Capsule())
+    /// The Search pill, with the glass button that toggles the navigation island on the left.
+    private var bottomRow: some View {
+        ZStack {
+            Button {
+                home.present(.search)
+            } label: {
+                Label("Search", systemImage: "magnifyingglass")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .sideHomeGlass(Capsule())
+            }
+            HStack {
+                Button {
+                    home.navOpen.toggle()
+                } label: {
+                    Image(systemName: home.navOpen ? "xmark" : "arrow.left.arrow.right")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(width: 44, height: 44)
+                        .sideHomeGlass(Circle())
+                }
+                .accessibilityLabel(home.navOpen ? "Hide Navigation" : "Show Navigation")
+                Spacer()
+            }
+            .padding(.horizontal, 20)
         }
         .padding(.bottom, 12)
     }
@@ -161,7 +178,7 @@ struct SideHomeScreen: View {
     private var dock: some View {
         HStack(spacing: 28) {
             SideHomeBuiltInIcon(symbol: "gearshape.fill", colors: [Color(white: 0.62), Color(white: 0.38)]) {
-                settingsOpen = true
+                home.settingsOpen = true
             }
             .sideHomeZoomSource(id: "settings", in: zoom)
 
@@ -438,10 +455,7 @@ struct SideHomeWallpaper: View {
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .clipped()
             } else {
-                LinearGradient(colors: [Color(red: 0.12, green: 0.18, blue: 0.48),
-                                        Color(red: 0.52, green: 0.22, blue: 0.62),
-                                        Color(red: 0.96, green: 0.48, blue: 0.42)],
-                               startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [Color(white: 0.16), Color(white: 0.04)], startPoint: .top, endPoint: .bottom)
             }
         }
         .ignoresSafeArea()

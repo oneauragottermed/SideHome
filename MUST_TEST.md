@@ -17,8 +17,9 @@ A checklist for testing SideHome on a real iPhone. Go through it top to bottom a
 
 ## 1. Home screen
 
-- [ ] **1.1** The new SideHome icon (white tiles on a blue-purple-orange gradient) shows on the real iPhone home screen. Also check it in dark mode and with tinted icons.
-- [ ] **1.2** Inside SideHome: wallpaper, your apps in a grid, a **Search** pill above the dock, and a glass dock with Settings and Install IPA.
+- [ ] **1.1** The SideHome icon (white tiles and a grey dock on graphite) shows on the real iPhone home screen. Also check it in dark mode and with tinted icons. If it's blank white after updating, restart the iPhone (iOS caches icons).
+- [ ] **1.2** Inside SideHome: a plain dark wallpaper, your apps in a grid, a round glass button at the bottom left, a **Search** pill, and a glass dock with Settings and Install IPA.
+- [ ] **1.7** SHDebug shows its own icon (green `>_` on black) instead of a blank white one. Reinstall SHDebug to get it.
 - [ ] **1.3** Long-press an app → menu with App Settings, Add to Folder, Edit Home Screen and Delete App.
 - [ ] **1.4** Edit Home Screen → icons wiggle → a **Done** button appears at the top right → Done stops the wiggling.
 - [ ] **1.5** Long-press and drag an icon onto another to swap places. The order stays after closing and reopening SideHome.
@@ -30,6 +31,16 @@ A checklist for testing SideHome on a real iPhone. Go through it top to bottom a
 - [ ] **2.2** Swipe up from the **very bottom edge** → the app shrinks back into its icon. The first swipe goes to SideHome; a second one leaves to real iOS. That's on purpose.
 - [ ] **2.3** Tap SHDebug again → it comes back as you left it, without restarting. The "Launch #" number doesn't go up.
 - [ ] **2.4** Rotate the phone inside SHDebug. Note what happens.
+
+## 2b. Navigation island (Back · Home · Forward)
+
+- [ ] **2b.1** Open an app → a glass island with Back, Home and Forward appears at the bottom middle by itself.
+- [ ] **2b.2** Home → the app shrinks back into its icon and the island disappears.
+- [ ] **2b.3** On the home screen, the round glass button (bottom left) shows and hides the island. When shown there, it sits just above the dock.
+- [ ] **2b.4** Open app A, go home, open app B, then press **Back** → app A. Press **Forward** → app B. Back from the first app → home screen.
+- [ ] **2b.5** Back and Forward are greyed out when there's nowhere to go.
+- [ ] **2b.6** Home also closes Settings, Notification Center, Control Center, Search and the LiveContainer screens.
+- [ ] **2b.7** The island doesn't block taps on the app when it's hidden.
 
 ## 3. App switcher
 
@@ -111,11 +122,11 @@ A checklist for testing SideHome on a real iPhone. Go through it top to bottom a
 
 ## 11. SHDebug buttons that failed before
 
-For each one, press it once, then screenshot the Log.
+For each one, press it once, then screenshot SHDebug's Log, and SideHome's **Settings → Advanced → Debug Log** (it lists every notification, badge, haptic and URL SideHome received from apps; **Copy** copies it).
 
-- [ ] **11.1** Haptic: Success / Impact / Selection. Do you **feel** anything?
+- [ ] **11.1** Haptic: Success / Impact / Selection. Do you **feel** anything now? Also try Settings → Advanced → Debug Log → **Test SideHome Haptic**. Does the log list "Haptic …" lines after pressing SHDebug's buttons?
 - [ ] **11.2** Run 30 s Background Task, then go to SideHome's home screen for 30 s and come back. Do the ticks say "background" or "foreground"?
-- [ ] **11.3** Open shdebug:// (own URL scheme). What does the log say?
+- [ ] **11.3** Open shdebug:// (own URL scheme) → SHDebug's log should add "Opened via URL: shdebug://hello". SideHome's Debug Log shows "URL … delivered".
 - [ ] **11.4** Copy Text to Clipboard, then Paste from Clipboard. Does it show the text?
 - [ ] **11.5** The keyboard field: does the keyboard appear? Can you type?
 - [ ] **11.6** Crash the App: what happens? (Black screen? Back to the home screen? Frozen?)

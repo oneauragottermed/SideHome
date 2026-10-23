@@ -8,6 +8,16 @@
 	<string>SHDebug</string>
 	<key>CFBundleExecutable</key>
 	<string>SHDebug</string>
+	<key>CFBundleIcons</key>
+	<dict>
+		<key>CFBundlePrimaryIcon</key>
+		<dict>
+			<key>CFBundleIconFiles</key>
+			<array>
+				<string>AppIcon60x60</string>
+			</array>
+		</dict>
+	</dict>
 	<key>CFBundleIdentifier</key>
 	<string>com.oneauragottermed.shdebug</string>
 	<key>CFBundleInfoDictionaryVersion</key>

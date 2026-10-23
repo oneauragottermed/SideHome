@@ -15,6 +15,12 @@ import UIKit
     private static var running: [String: UIViewController] = [:]
     /// dataUUIDs of running apps, most recently opened first (app switcher order).
     private static var recent: [String] = []
+    /// Back / Forward history of opened apps (dataUUIDs) and the position of the current one.
+    private static var history: [String] = []
+    private static var historyIndex = -1
+    private static var navigating = false
+    /// dataUUID of the app shown full-screen, if any
+    private static var front: String?
 
     /// Called from LCUtils.launchMultitaskGuestApp instead of opening a floating window.
     @objc(presentWithDisplayName:bundleId:dataUUID:completionHandler:)
@@ -50,6 +56,76 @@ import UIKit
         return true
     }
 
+    /// Delivers a URL to a running guest app's scene. Returns false if the app isn't running here.
+    class func deliver(url: String, toApp bundleKey: String) -> Bool {
+        guard #available(iOS 16.0, *),
+              let container = running.values.compactMap({ $0 as? SideHomeAppContainer }).first(where: { $0.bundleId == bundleKey })
+        else { return false }
+        container.appSceneVC.openURLScheme(url)
+        return true
+    }
+
+    // MARK: Navigation island
+
+    /// Previous app in the history; from the first app, the home screen; from home, the last app.
+    class func goBack() {
+        guard #available(iOS 16.0, *) else { return }
+        if SideHomeModel.shared.appInFront {
+            if historyIndex > 0 {
+                historyIndex -= 1
+                reopen(history[historyIndex])
+            } else {
+                goHome()
+            }
+        } else if historyIndex >= 0 {
+            reopen(history[historyIndex])
+        }
+    }
+
+    class func goForward() {
+        guard #available(iOS 16.0, *), historyIndex + 1 < history.count else { return }
+        historyIndex += 1
+        reopen(history[historyIndex])
+    }
+
+    /// Closes whatever is open (app, Settings, overlays, LiveContainer screens) and the island.
+    class func goHome() {
+        let home = SideHomeModel.shared
+        home.settingsOpen = false
+        home.present(nil)
+        home.showLibrary = false
+        if #available(iOS 16.0, *), let front, let container = running[front] as? SideHomeAppContainer {
+            container.zoomOut()
+        }
+        home.navOpen = false
+    }
+
+    @available(iOS 16.0, *)
+    private class func reopen(_ dataUUID: String) {
+        navigating = true
+        (running[dataUUID] as? SideHomeAppContainer)?.zoomIn()
+        navigating = false
+    }
+
+    fileprivate class func publishNav() {
+        let home = SideHomeModel.shared
+        home.canGoBack = home.appInFront || historyIndex >= 0
+        home.canGoForward = historyIndex + 1 < history.count
+    }
+
+    @available(iOS 16.0, *)
+    fileprivate class func hideOthers(except dataUUID: String) {
+        for case let container as SideHomeAppContainer in running.values where container.dataUUID != dataUUID && !container.view.isHidden {
+            container.view.alpha = 0
+            container.view.isHidden = true
+        }
+    }
+
+    fileprivate class func didGoHome() {
+        front = nil
+        publishNav()
+    }
+
     class func terminateAll() {
         guard #available(iOS 16.0, *) else { return }
         for case let container as SideHomeAppContainer in running.values {
@@ -60,11 +136,28 @@ import UIKit
     fileprivate class func didFocus(dataUUID: String) {
         recent.removeAll { $0 == dataUUID }
         recent.insert(dataUUID, at: 0)
+        front = dataUUID
+        // Opening an app normally (not via Back/Forward) drops the forward history, like a browser
+        if !navigating {
+            if historyIndex + 1 < history.count {
+                history.removeSubrange((historyIndex + 1)...)
+            }
+            history.removeAll { $0 == dataUUID }
+            history.append(dataUUID)
+            historyIndex = history.count - 1
+        }
+        publishNav()
     }
 
     fileprivate class func didClose(dataUUID: String) {
         running[dataUUID] = nil
         recent.removeAll { $0 == dataUUID }
+        if let index = history.firstIndex(of: dataUUID) {
+            history.remove(at: index)
+            if index <= historyIndex { historyIndex -= 1 }
+        }
+        if front == dataUUID { front = nil }
+        publishNav()
     }
 
     fileprivate static var keyWindow: UIWindow? {
@@ -154,11 +247,15 @@ private class SideHomeAppContainer: UIViewController, AppSceneViewControllerDele
         }
         statusBarManager?.nativeWindowViewController = appSceneVC
         SideHomeModel.shared.appInFront = true
+        SideHomeModel.shared.navOpen = true
         SideHomeAppHost.didFocus(dataUUID: dataUUID)
         UIView.animate(withDuration: 0.5, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
             self.view.transform = .identity
             self.view.layer.cornerRadius = 0
             self.view.alpha = 1
+        } completion: { finished in
+            // The app now covers the screen, so the one it replaced can be hidden
+            if finished { SideHomeAppHost.hideOthers(except: self.dataUUID) }
         }
     }
 
@@ -166,6 +263,8 @@ private class SideHomeAppContainer: UIViewController, AppSceneViewControllerDele
         let target = iconTransform
         statusBarManager?.nativeWindowViewController = nil
         SideHomeModel.shared.appInFront = false
+        SideHomeModel.shared.navOpen = false
+        SideHomeAppHost.didGoHome()
         UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: velocity, options: [.beginFromCurrentState]) {
             self.view.transform = target
             self.view.layer.cornerRadius = self.iconCornerRadius / target.a
@@ -299,6 +398,8 @@ private final class SideHomeSwitcher: NSObject {
         self.cards = cards
         scroll = 0
         SideHomeModel.shared.appInFront = false
+        SideHomeModel.shared.navOpen = false
+        SideHomeAppHost.didGoHome()
 
         let backdrop = UIVisualEffectView(effect: nil)
         backdrop.frame = rootView.bounds

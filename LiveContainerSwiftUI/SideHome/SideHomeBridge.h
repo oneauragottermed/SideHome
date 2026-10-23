@@ -26,6 +26,8 @@ typedef NS_ENUM(NSInteger, SideHomeHapticKind) {
 - (void)requestNotificationAuthorizationWithOptions:(NSUInteger)options reply:(void (^)(BOOL granted))reply NS_SWIFT_NAME(requestAuthorization(_:reply:));
 - (void)setBadgeCount:(NSInteger)count fromApp:(NSString *)bundleId NS_SWIFT_NAME(setBadge(_:fromApp:));
 - (void)playHapticOfKind:(SideHomeHapticKind)kind value:(NSInteger)value NS_SWIFT_NAME(playHaptic(kind:value:));
+/// The guest opened one of its own URL schemes; SideHome delivers it to the guest's scene.
+- (void)openURL:(NSString *)url inApp:(NSString *)bundleId NS_SWIFT_NAME(open(_:inApp:));
 @end
 
 /// Lives in the LiveProcess executable. TweakLoader looks it up with NSClassFromString.

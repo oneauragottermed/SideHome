@@ -6,6 +6,7 @@
 //  the guest's name and icon), keeps per-app badges and plays guest haptics.
 //
 
+import AudioToolbox
 import UIKit
 import UserNotifications
 
@@ -54,6 +55,7 @@ private class SideHomeHostServerImpl: NSObject, SideHomeHostServer, NSXPCListene
 
     func post(_ request: UNNotificationRequest, fromApp bundleId: String) {
         DispatchQueue.main.async {
+            SideHomeModel.shared.log("Notification from \(bundleId): \(request.content.title)")
             let app = SideHomeHostService.app(bundleId: bundleId)
             let content = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
             var userInfo = content.userInfo
@@ -76,7 +78,10 @@ private class SideHomeHostServerImpl: NSObject, SideHomeHostServer, NSXPCListene
             let center = UNUserNotificationCenter.current()
             // Guests are told they're authorized, so SideHome asks iOS the first time one posts
             center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
-                center.add(UNNotificationRequest(identifier: request.identifier, content: content, trigger: request.trigger))
+                center.add(UNNotificationRequest(identifier: request.identifier, content: content, trigger: request.trigger)) { error in
+                    guard let error else { return }
+                    DispatchQueue.main.async { SideHomeModel.shared.log("Notification failed: \(error.localizedDescription)") }
+                }
             }
         }
     }
@@ -94,6 +99,7 @@ private class SideHomeHostServerImpl: NSObject, SideHomeHostServer, NSXPCListene
     func setBadge(_ count: Int, fromApp bundleId: String) {
         DispatchQueue.main.async {
             let home = SideHomeModel.shared
+            home.log("Badge \(count) from \(bundleId)")
             home.badges[bundleId] = count > 0 ? count : nil
             let total = home.badges.values.reduce(0, +)
             if #available(iOS 16.0, *) {
@@ -105,15 +111,28 @@ private class SideHomeHostServerImpl: NSObject, SideHomeHostServer, NSXPCListene
     }
 
     func playHaptic(kind: SideHomeHapticKind, value: Int) {
+        // shortcut: undocumented Taptic system sounds (1519 peek, 1520 pop, 1521 nope), because forwarded
+        // UIFeedbackGenerator calls gave no haptic in testing. Revisit if a later iOS drops these IDs.
+        let sound: SystemSoundID
+        switch kind {
+        case .notification:
+            let failed = value == UINotificationFeedbackGenerator.FeedbackType.error.rawValue
+                || value == UINotificationFeedbackGenerator.FeedbackType.warning.rawValue
+            sound = failed ? 1521 : 1520
+        case .impact:
+            sound = value == UIImpactFeedbackGenerator.FeedbackStyle.light.rawValue ? 1519 : 1520
+        default:
+            sound = 1519
+        }
+        AudioServicesPlaySystemSound(sound)
+        DispatchQueue.main.async { SideHomeModel.shared.log("Haptic \(kind.rawValue) (\(value))") }
+    }
+
+    func open(_ url: String, inApp bundleId: String) {
         DispatchQueue.main.async {
-            switch kind {
-            case .notification:
-                UINotificationFeedbackGenerator().notificationOccurred(UINotificationFeedbackGenerator.FeedbackType(rawValue: value) ?? .success)
-            case .impact:
-                UIImpactFeedbackGenerator(style: UIImpactFeedbackGenerator.FeedbackStyle(rawValue: value) ?? .medium).impactOccurred()
-            default:
-                UISelectionFeedbackGenerator().selectionChanged()
-            }
+            let key = SideHomeHostService.app(bundleId: bundleId)?.appInfo.relativeBundlePath ?? ""
+            let delivered = SideHomeAppHost.deliver(url: url, toApp: key)
+            SideHomeModel.shared.log("URL \(url) for \(bundleId): \(delivered ? "delivered" : "app not running")")
         }
     }
 

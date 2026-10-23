@@ -44,6 +44,13 @@ class SideHomeModel: ObservableObject {
     @Published var appInFront = false
     /// Notification Center, Control Center or Search, shown over everything including guest apps.
     @Published var overlay: SideHomeOverlay?
+    @Published var settingsOpen = false
+    /// The Back / Home / Forward island (SideHomeNav)
+    @Published var navOpen = false
+    @Published var canGoBack = false
+    @Published var canGoForward = false
+    /// What SideHome received from guest apps, newest first (Settings → Advanced → Debug Log)
+    @Published private(set) var debugLog: [String] = []
     /// Set by LCAppListView while an IPA is being installed (0...1), nil otherwise.
     @Published var installProgress: Float? = nil
     @Published var wallpaper: UIImage? = UIImage(contentsOfFile: SideHomeModel.wallpaperURL.path)
@@ -70,6 +77,12 @@ class SideHomeModel: ObservableObject {
             try? FileManager.default.removeItem(at: Self.wallpaperURL)
         }
         wallpaper = data.flatMap(UIImage.init(data:))
+    }
+
+    /// Must be called on the main thread.
+    func log(_ text: String) {
+        let time = Date().formatted(date: .omitted, time: .standard)
+        debugLog = Array((["\(time)  \(text)"] + debugLog).prefix(200))
     }
 
     /// Shows or hides an overlay without the default sheet slide; the overlays animate themselves.

@@ -3,8 +3,9 @@
 //  SideHome
 //
 
-import SwiftUI
+import AudioToolbox
 import PhotosUI
+import SwiftUI
 
 /// The built-in Settings app, laid out like iOS Settings.
 struct SideHomeSettingsView: View {
@@ -17,17 +18,6 @@ struct SideHomeSettingsView: View {
     var body: some View {
         NavigationView {
             List {
-                Section {
-                    HStack(spacing: 14) {
-                        SideHomeSettingsIcon(symbol: "house.fill", color: .blue, size: 60)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("SideHome").font(.title2.weight(.semibold))
-                            Text("Your sideloaded apps, at home").font(.subheadline).foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 6)
-                }
-
                 Section {
                     if #available(iOS 16.0, *) {
                         NavigationLink {
@@ -53,10 +43,13 @@ struct SideHomeSettingsView: View {
                     libraryRow("LiveContainer Settings", "gearshape.2.fill", .gray, tab: .settings)
                     libraryRow("Tweaks", "wrench.and.screwdriver.fill", .pink, tab: .tweaks)
                     libraryRow("Sources", "books.vertical.fill", .green, tab: .sources)
+                    NavigationLink {
+                        debugLog
+                    } label: {
+                        row("Debug Log", "ladybug.fill", .red)
+                    }
                 } header: {
                     Text("Advanced")
-                } footer: {
-                    Text("LiveContainer’s original screens: JIT, certificates, containers, tweaks and app sources.")
                 }
 
                 Section {
@@ -102,12 +95,39 @@ struct SideHomeSettingsView: View {
                 .pickerStyle(.inline)
                 .labelsHidden()
             } footer: {
-                Text("Liquid Glass needs iOS 26 or later. When it’s off or unavailable, the dock uses a frosted material.")
+                if !SharedModel.isLiquidGlassEnabled {
+                    Text("Liquid Glass needs iOS 26 or later, so SideHome uses a frosted material instead.")
+                }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Liquid Glass")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// What SideHome received from guest apps, for bug reports.
+    private var debugLog: some View {
+        List {
+            Section {
+                Button("Test SideHome Haptic") { AudioServicesPlaySystemSound(1520) }
+            }
+            Section {
+                if home.debugLog.isEmpty {
+                    Text("Nothing received yet").foregroundColor(.secondary)
+                }
+                ForEach(Array(home.debugLog.enumerated()), id: \.offset) { _, line in
+                    Text(line).font(.system(.caption, design: .monospaced))
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Debug Log")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button("Copy") { UIPasteboard.general.string = home.debugLog.joined(separator: "\n") }
+            }
+        }
     }
 
     private var homeScreen: some View {
